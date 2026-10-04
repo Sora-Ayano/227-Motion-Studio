@@ -1,0 +1,26 @@
+{
+  "name": "227-motion-studio",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "dev": "node server.mjs",
+    "prepare": "node tools/prepare-vendor.mjs"
+  },
+  "dependencies": {
+    "@mediapipe/tasks-vision": "1.0.1",
+    "fflate": "^0.8.3",
+    "mmd-parser": "1.0.4",
+    "three": "0.186.1"
+  },
+  "description": "22/7通用MMD/Unity模型编辑器",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Sora-Ayano/227-Motion-Studio.git"
+  }
+}

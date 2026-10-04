@@ -1,0 +1,58 @@
+# Dependencies and local runtimes
+node_modules/
+python-libs/
+runtime/
+.npm-cache/
+.pip-cache/
+__pycache__/
+*.pyc
+# Personal configuration and secrets
+config.json
+config.local.json
+.env
+.env.*
+*.pem
+*.key
+.credentials/
+.aws/
+.codex/
+.agents/
+# Local resources and generated work
+assets/
+resources/
+cache/
+exports/
+logs/
+web/data/
+web/audio/
+web/motions/
+web/game-motions/
+web/game-cameras/
+web/stages/
+# Private projects, captures and QA files
+tests/
+test-output/
+coverage/
+screenshots/
+*.log
+*.nana
+*.nana.json
+*.mp4
+*.webm
+*.wav
+*.mp3
+*.ogg
+*.acb
+*.awb
+*.fbx
+*.glb
+*.gltf
+*.pmx
+*.vmd
+*.sqlite3
+# Editors and OS files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+release/

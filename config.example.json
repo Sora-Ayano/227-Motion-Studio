@@ -1,0 +1,11 @@
+{
+  "assetRoot": "assets",
+  "gameRoot": "assets/game",
+  "catalogDatabase": "assets/reference/resource_catalog.sqlite3",
+  "masterRoot": "assets/master",
+  "unityPyVendor": "python-libs",
+  "python": "python",
+  "motionRoot": "assets/motions",
+  "port": 2270,
+  "ffmpeg": ""
+}

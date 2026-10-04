@@ -1,0 +1,3 @@
+let session;
+async function token(){if(!session){session=fetch('/api/session',{cache:'no-store'}).then(async r=>{if(!r.ok)throw new Error('本机服务连接失败，请重新运行启动文件');return (await r.json()).token;}).catch(e=>{session=null;throw e;});}return session;}
+export async function postLocal(url,options={}){if(!url.startsWith('/api/'))throw new Error('本地接口地址无效');const request=async()=>fetch(url,{...options,method:'POST',headers:{...options.headers,'X-Studio-Session':await token()}});let r=await request();if(!r.ok){const body=await r.clone().json().catch(()=>({}));if(/仅允许|本机页面/.test(body.error||'')){session=null;r=await request();}}return r;}

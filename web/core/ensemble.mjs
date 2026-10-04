@@ -1,0 +1,22 @@
+import {sourceSlot,roleSlot} from './game-layout.mjs';
+import {Group,Box3,Vector3} from 'three';
+import {createCharacter} from './model.mjs';
+import {Retargeter} from './retarget.mjs';
+import {loadGameMotion,sampleGameTrack} from './game-motion.mjs';
+import {emptyClip} from './vmd.mjs';
+export function initialGamePosition(doc){const part=doc.parts.body,t=part.tracks.find(t=>t.name==='BodyPelvis'&&t.kind==='position');const p=t?sampleGameTrack(part,t,0):[0,0,0];return [p[0],0,p[2]];}
+export class Ensemble{
+ constructor(scene,state){this.scene=scene;this.state=state;this.root=new Group();this.root.name='多人舞台';scene.add(this.root);this.primary=new Group();this.root.add(this.primary);this.actors=[];this.settings={enabled:false,moveEnabled:false,autoPlacement:true,primary:{slot:3,position:[0,0,0],rotation:0},actors:[]};}
+ attach(model){this.primary.clear();this.primary.add(model.motionRoot);this.updatePlacement();}
+ updatePlacement(){const s=this.settings;this.primary.position.fromArray(s.primary.position);this.primary.rotation.y=s.primary.rotation*Math.PI/180;for(const a of this.actors){a.group.visible=s.enabled;a.group.position.fromArray(a.config.position);a.group.rotation.y=a.config.rotation*Math.PI/180;}this.root.updateMatrixWorld(true);}
+ async add(config){const model=await createCharacter(config.components,config.profile,config.variants),retarget=new Retargeter(model),group=new Group();group.name=config.profile.name;group.add(model.motionRoot);this.root.add(group);const actor={model,retarget,group,config,clip:emptyClip()};this.actors.push(actor);this.settings.actors.push(config);await this.syncSong();this.updatePlacement();return actor;}
+ clear(){for(const a of this.actors){a.model.dispose();a.group.removeFromParent();}this.actors=[];this.settings.actors=[];}
+ async restore(s){this.clear();this.settings={...this.settings,...structuredClone(s||{}),actors:[]};for(const c of s?.actors||[])await this.add(c);this.updatePlacement();}
+ async syncSong(){let id=this.state.motion.gameMotion?.id;if(!id){this.settings.primary.slot=3;if(this.settings.autoPlacement){this.settings.primary.position=[0,0,0];for(const a of this.actors)a.config.position=[(a.config.slot-3)*1.2,0,0];}this.updatePlacement();return;}const song=id.split('-')[0],catalog=this.state.catalog;let role=roleSlot(catalog,song,id.split('-')[1]);if(this.settings.enabled&&role!==3){const other=this.actors.find(a=>a.config.slot===3);if(other)other.config.slot=role;id=song+'-'+sourceSlot(catalog,song,3);role=3;this.state.motion.gameMotion.id=id;this.state.edits={bones:{},morphs:{}};}this.settings.primary.slot=role;this.state.motion.gameMotion.roleSlot=role;this.state.motion.name=this.state.motion.name.replace(/站位 \d/,'站位 '+role);const primary=await loadGameMotion(id);if(this.settings.autoPlacement)this.settings.primary.position=initialGamePosition(primary);
+  for(const a of this.actors){const doc=await loadGameMotion(song+'-'+sourceSlot(catalog,song,a.config.slot));a.clip=emptyClip();a.clip.gameMotion={id:doc.id,roleSlot:a.config.slot};if(this.settings.autoPlacement)a.config.position=initialGamePosition(doc);}this.updatePlacement();}
+ scales(){const result={},song=this.state.motion.gameMotion?.id.split('-')[0];result[sourceSlot(this.state.catalog,song,this.settings.primary.slot||3)]=this.state.profile?.bodyScale||1;for(const a of this.actors)result[sourceSlot(this.state.catalog,song,a.config.slot)]=a.config.profile.bodyScale||1;return result;}
+ async replace(actor,config){const model=await createCharacter(config.components,config.profile,config.variants);actor.model.dispose();actor.group.clear();actor.group.add(model.motionRoot);actor.model=model;actor.retarget=new Retargeter(model);Object.assign(actor.config,config);await this.syncSong();this.updatePlacement();}
+ update(frame){this.updatePlacement();if(!this.settings.enabled)return;for(const a of this.actors){Object.assign(a.retarget.settings,this.state.retarget.settings);a.clip.disabledBody=this.state.motion.disabledBody;a.clip.disabledFace=this.state.motion.disabledFace;a.retarget.apply(this.state.motion.gameMotion?a.clip:this.state.motion,frame,a.config.edits|| (this.state.motion.gameMotion?undefined:this.state.edits));}}
+ bounds(){const box=new Box3().setFromObject(this.primary);if(this.settings.enabled)for(const a of this.actors)box.union(new Box3().setFromObject(a.group));return box;}
+ save(){return structuredClone(this.settings);}
+}
