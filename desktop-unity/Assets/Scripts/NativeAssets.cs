@@ -1,0 +1,42 @@
+using System;
+using System.IO;
+using System.Linq;
+using System.Collections.Generic;
+using Newtonsoft.Json.Linq;
+using UnityEngine;
+using UnityEngine.Rendering;
+namespace MotionStudio {
+ public static class NativeAssets {
+  public static string Studio = Path.GetFullPath(Path.Combine(Application.dataPath,"..","studio"));
+  static readonly Dictionary<string,Texture2D> textures=new Dictionary<string,Texture2D>();
+  public static JObject Json(string file)=>JObject.Parse(File.ReadAllText(Path.Combine(Studio,file)));
+  public static string Local(string url)=>Path.Combine(Studio,url.StartsWith("/cache/")?url.TrimStart('/'):"web/"+url.TrimStart('/'));
+  public static Vector3 V(JToken a)=>a==null?Vector3.zero:new Vector3((float)a[0],(float)a[1],-(float)a[2]);
+  public static Quaternion Q(JToken a)=>new Quaternion(-(float)a[0],-(float)a[1],(float)a[2],(float)a[3]);
+  public static Matrix4x4 M(JToken a){var result=new Matrix4x4();for(int i=0;i<16;i++)result[i]=(float)a[i];var reflect=Matrix4x4.Scale(new Vector3(1,1,-1));return reflect*result*reflect;}
+  public static Texture2D Texture(string url,bool linear=false){if(string.IsNullOrEmpty(url))return null;string key=url+linear;if(textures.TryGetValue(key,out var found))return found;var t=new Texture2D(2,2,TextureFormat.RGBA32,true,linear);t.LoadImage(File.ReadAllBytes(Local(url)),false);t.wrapMode=TextureWrapMode.Repeat;t.anisoLevel=4;textures[key]=t;return t;}
+  public static Transform[] Nodes(JArray data,Transform parent){var nodes=data.Select(n=>new GameObject((string)n["name"]).transform).ToArray();for(int i=0;i<nodes.Length;i++){var n=data[i];int p=(int)n["parent"];nodes[i].SetParent(p>=0?nodes[p]:parent,false);nodes[i].localPosition=V(n["position"]);nodes[i].localRotation=Q(n["quaternion"]);var scale=n["scale"];nodes[i].localScale=new Vector3((float)scale[0],(float)scale[1],(float)scale[2]);nodes[i].gameObject.SetActive((bool?)n["active"]??true);}return nodes;}
+  public static Mesh Mesh(JObject d,Transform[] bones){var mesh=new Mesh{name=(string)d["name"],indexFormat=IndexFormat.UInt32};var positions=(JArray)d["positions"];int count=positions.Count/3;Vector3[] verts=new Vector3[count],normals=new Vector3[count];for(int i=0;i<count;i++){verts[i]=new Vector3((float)positions[i*3],(float)positions[i*3+1],-(float)positions[i*3+2]);var n=d["normals"];if(n!=null&&n.Count()==count*3)normals[i]=new Vector3((float)n[i*3],(float)n[i*3+1],-(float)n[i*3+2]);}mesh.vertices=verts;mesh.normals=normals;var uv=d["uv"];mesh.uv=Enumerable.Range(0,count).Select(i=>new Vector2((float)uv[i*2],(float)uv[i*2+1])).ToArray();var uv1=d["uv1"];if(uv1!=null&&uv1.Count()==count*2)mesh.uv2=Enumerable.Range(0,count).Select(i=>new Vector2((float)uv1[i*2],(float)uv1[i*2+1])).ToArray();var ids=d["indices"].Values<int>().ToArray();var groups=(JArray)d["groups"];mesh.subMeshCount=Math.Max(1,groups.Count);for(int g=0;g<groups.Count;g++){int start=(int)groups[g]["start"],length=(int)groups[g]["count"];int[] triangles=new int[length];for(int j=0;j<length;j+=3){triangles[j]=ids[start+j];triangles[j+1]=ids[start+j+2];triangles[j+2]=ids[start+j+1];}mesh.SetTriangles(triangles,g);}
+   int[] boneIDs=d["bones"].Values<int>().ToArray();if(boneIDs.Length>0){var weights=d["skinWeight"].Values<float>().ToArray();var indices=d["skinIndex"].Values<int>().ToArray();mesh.boneWeights=Enumerable.Range(0,count).Select(i=>new BoneWeight{boneIndex0=indices[i*4],boneIndex1=indices[i*4+1],boneIndex2=indices[i*4+2],boneIndex3=indices[i*4+3],weight0=weights[i*4],weight1=weights[i*4+1],weight2=weights[i*4+2],weight3=weights[i*4+3]}).ToArray();mesh.bindposes=d["inverses"].Select(M).ToArray();}
+   else {mesh.boneWeights=Enumerable.Range(0,count).Select(i=>new BoneWeight{weight0=1}).ToArray();mesh.bindposes=new[]{Matrix4x4.identity};}
+   foreach(var morph in (JArray)(d["morphs"]??new JArray())){var delta=new Vector3[count];foreach(var row in morph["deltas"])delta[(int)row[0]]=new Vector3((float)row[1],(float)row[2],-(float)row[3]);mesh.AddBlendShapeFrame((string)morph["name"],100,delta,null,null);}mesh.RecalculateBounds();return mesh;
+  }
+  public static Material Material(JObject m,string skin=null){var mat=new Material(Shader.Find("22-7 Native/SoftToon"));string baseURL=(bool?)m["skin"]==true?skin:(string)m["texture"];mat.mainTexture=Texture(baseURL);string shadow=(string)m["shadowTexture"];if((bool?)m["skin"]==true&&skin!=null)shadow=skin.Replace("skin.png","skin_sd.png");mat.SetTexture("_ShadowTex",Texture(shadow??baseURL));mat.SetTexture("_RampTex",Texture((string)m["rampTexture"],true));mat.SetFloat("_UseRamp",m["rampTexture"]!=null?1:0);mat.SetFloat("_Sheen",(bool?)m["skin"]==true?0:.24f);mat.SetFloat("_Cull",(bool?)m["doubleSide"]==true?0:2);mat.SetFloat("_Ambient",.22f);var c=m["color"];mat.color=baseURL!=null?Color.white:new Color((float)(c?[0]??1),(float)(c?[1]??1),(float)(c?[2]??1),1);mat.name=(string)m["name"];return mat;}
+  public static void SetMatrix(Transform target,Matrix4x4 matrix){target.localPosition=matrix.GetColumn(3);target.localRotation=matrix.rotation;target.localScale=matrix.lossyScale;}
+ }
+ public class NativeActor {
+  public Transform root,group;public float bodyScale,headScale;public string character,body;public Dictionary<string,Transform> bones=new Dictionary<string,Transform>();public List<SkinnedMeshRenderer> meshes=new List<SkinnedMeshRenderer>();
+  public List<Part> parts=new List<Part>();public List<NativeClothGPU> cloth=new List<NativeClothGPU>();public NativeMotion motion;
+  public Dictionary<string,Dictionary<string,Transform>> partBones=new Dictionary<string,Dictionary<string,Transform>>();
+  public class Part {public Transform group,anchor;public Matrix4x4 inverse;public bool head;}
+  public NativeActor(JObject person,string outfit,ComputeShader solver){character=(string)person["id"];body=outfit;bodyScale=(float?)person["bodyScale"]??1;headScale=(float?)person["headScale"]??1;root=new GameObject((string)person["name"]).transform;group=new GameObject("NativeCharacter").transform;group.SetParent(root,false);string skinKey=(string)person["skin"];string skin=(string)NativeAssets.Json("cache/components/skin/"+skinKey+"/model.json")["textures"]["skin.png"];
+   AddPart("body",outfit,skin,solver);AddPart("face",(string)person["face"],skin,solver);AddPart("hair",(string)person["hair"],skin,solver);group.localScale=Vector3.one*bodyScale;Attachments();
+  }
+  public void AddPart(string family,string id,string skin,ComputeShader solver){if(string.IsNullOrEmpty(id))return;var doc=NativeAssets.Json("cache/components/"+family+"/"+id+"/model.json");var parent=new GameObject(family).transform;parent.SetParent(group,false);var nodes=NativeAssets.Nodes((JArray)doc["bones"],parent);partBones[family]=nodes.GroupBy(b=>b.name).ToDictionary(g=>g.Key,g=>g.First());if(family=="body")foreach(var b in nodes)bones[b.name]=b;
+   foreach(JObject d in doc["meshes"]){var obj=new GameObject(family+"_"+(string)d["name"]);obj.transform.SetParent(parent,false);var renderer=obj.AddComponent<SkinnedMeshRenderer>();renderer.sharedMesh=NativeAssets.Mesh(d,nodes);var ids=d["bones"].Values<int>().ToArray();renderer.bones=ids.Length>0?ids.Select(i=>nodes[i]).ToArray():new[]{obj.transform};renderer.rootBone=ids.Length>0?nodes[0]:obj.transform;renderer.localBounds=renderer.sharedMesh.bounds;renderer.updateWhenOffscreen=true;renderer.sharedMaterials=d["materials"].Cast<JObject>().Select(m=>NativeAssets.Material(m,skin)).ToArray();renderer.shadowCastingMode=ShadowCastingMode.On;meshes.Add(renderer);if(family=="body"&&solver!=null){var gpu=obj.AddComponent<NativeClothGPU>();gpu.Initialize(renderer,solver,bones);cloth.Add(gpu);}}
+   if(doc["attachmentMatrix"]!=null&&doc["attachmentMatrix"].Type!=JTokenType.Null){var joint=nodes.FirstOrDefault(b=>b.name.Contains("__Body"));string name=joint?.name.Split(new[]{"__"},StringSplitOptions.None).Last();Transform anchor=name!=null&&bones.ContainsKey(name)?bones[name]:bones["BodyHead"];Matrix4x4 reference=joint!=null?joint.localToWorldMatrix:NativeAssets.M(doc["attachmentMatrix"]);parts.Add(new Part{group=parent,anchor=anchor,inverse=reference.inverse,head=anchor.name=="BodyHead"});}
+  }
+  public void Attachments(){foreach(var part in parts)NativeAssets.SetMatrix(part.group,group.worldToLocalMatrix*part.anchor.localToWorldMatrix*Matrix4x4.Scale(Vector3.one*(part.head?headScale:1))*part.inverse);}
+  public void Dispose(){UnityEngine.Object.Destroy(root.gameObject);}
+ }
+}

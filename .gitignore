@@ -2,6 +2,13 @@
 node_modules/
 python-libs/
 runtime/
+desktop-unity/Library/
+desktop-unity/Temp/
+desktop-unity/Obj/
+desktop-unity/UserSettings/
+desktop-unity/Assets/Plugins/*.dll
+*.pdb
+*.mdb
 .npm-cache/
 .pip-cache/
 __pycache__/
@@ -56,3 +63,9 @@ Thumbs.db
 .vscode/
 .idea/
 release/
+# Native source assets must override the generic local-resource rules above.
+!desktop-unity/Assets/
+desktop-unity/Assets/*
+!desktop-unity/Assets/Scripts/
+!desktop-unity/Assets/Editor/
+!desktop-unity/Assets/Resources/

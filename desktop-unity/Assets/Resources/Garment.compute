@@ -1,0 +1,20 @@
+#pragma kernel Skin
+#pragma kernel Predict
+#pragma kernel Solve
+#pragma kernel Offsets
+StructuredBuffer<float3> Rest;
+StructuredBuffer<float4> Weights;
+StructuredBuffer<int4> Indices;
+StructuredBuffer<float4x4> Bones;
+StructuredBuffer<float> Mobility;
+StructuredBuffer<int> Neighbors;
+StructuredBuffer<float3> InputPositions;
+RWStructuredBuffer<float3> Targets, PreviousTargets, PreviousPositions, Positions, Result;
+float4 CapsuleA[16],CapsuleB[16];
+int Count,ColliderCount,Reset;
+float Dt,TimeValue,Strength;
+[numthreads(64,1,1)] void Skin(uint i:SV_DispatchThreadID){if(i>=Count)return;int4 ids=Indices[i];float4 w=Weights[i];float4 v=float4(Rest[i],1);Targets[i]=(mul(Bones[ids.x],v)*w.x+mul(Bones[ids.y],v)*w.y+mul(Bones[ids.z],v)*w.z+mul(Bones[ids.w],v)*w.w).xyz;}
+[numthreads(64,1,1)] void Predict(uint i:SV_DispatchThreadID){if(i>=Count)return;float3 target=Targets[i];if(Reset||Mobility[i]<.01||Strength<.001){Positions[i]=target;PreviousPositions[i]=target;PreviousTargets[i]=target;return;}float3 current=Positions[i];float3 travel=target-PreviousTargets[i];float3 velocity=(current-PreviousPositions[i])*0.85;PreviousPositions[i]=current+travel;PreviousTargets[i]=target;float3 predicted=current+travel+velocity+float3(sin(TimeValue*1.8+target.y*3)*.18,-.8,cos(TimeValue*1.3+target.x*5)*.14)*Dt*Dt*Strength;Positions[i]=lerp(predicted,target,.18);}
+[numthreads(64,1,1)] void Solve(uint i:SV_DispatchThreadID){if(i>=Count)return;float mobility=Mobility[i]*Strength;float3 target=Targets[i];if(mobility<.01){Result[i]=target;return;}float3 p=InputPositions[i];float3 correction=0;int valid=0;for(int j=0;j<8;j++){int n=Neighbors[i*8+j];if(n<0)continue;float3 d=p-InputPositions[n];float len=length(d);if(len>.00001){float rest=distance(target,Targets[n]);correction-=d*((len-rest)/len)*mobility/(mobility+Mobility[n]+.0001);valid++;}}if(valid>0)p+=correction/valid*.8;float3 drift=p-target;float limit=.045*mobility;p=target+drift*min(1,limit/max(length(drift),.00001));
+ for(int k=0;k<ColliderCount;k++){float3 a=CapsuleA[k].xyz,b=CapsuleB[k].xyz,segment=b-a;float t=saturate(dot(p-a,segment)/max(dot(segment,segment),.00001));float3 nearest=a+segment*t;float3 d=p-nearest;float radius=CapsuleA[k].w;float dist=length(d);if(dist<radius&&dist>.00001)p+=d/dist*min(radius-dist,.085)*mobility;}Result[i]=p;}
+[numthreads(64,1,1)] void Offsets(uint i:SV_DispatchThreadID){if(i>=Count)return;Result[i]=Mobility[i]>.01?Positions[i]-Targets[i]:0;}
