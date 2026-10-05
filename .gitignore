@@ -26,11 +26,6 @@ config.local.json
 .agents/
 # Local resources and generated work
 assets/
-!desktop-unity/Assets/
-desktop-unity/Assets/*
-!desktop-unity/Assets/Scripts/
-!desktop-unity/Assets/Editor/
-!desktop-unity/Assets/Resources/
 resources/
 cache/
 exports/
@@ -68,3 +63,9 @@ Thumbs.db
 .vscode/
 .idea/
 release/
+# Native source assets must override the generic local-resource rules above.
+!desktop-unity/Assets/
+desktop-unity/Assets/*
+!desktop-unity/Assets/Scripts/
+!desktop-unity/Assets/Editor/
+!desktop-unity/Assets/Resources/
