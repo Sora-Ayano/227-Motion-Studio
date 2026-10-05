@@ -30,7 +30,7 @@ export async function createCharacter(components,profile,variants={}){
     const shadowOverlay=m.skin?component.textureSets?.['subwear_'+(variants.subwear||'01')]?.['skinblend_sd.png']:null;
     const shadowMap=shadowOverlay?await blendTexture(shadowURL||skin,shadowOverlay):await texture(shadowURL),rampMap=await texture(m.rampTexture||data.skin?.textures['toonlamp.png'],true);
     if(shadowOverlay&&shadowMap)model.ownedTextures.push(shadowMap);
-    const mat=gameMaterial({name:m.name,map,shadowMap,rampMap,lining:m.lining,color:map?0xffffff:new THREE.Color().fromArray(m.color)});
+    const mat=gameMaterial({name:m.name,map,shadowMap,rampMap,lining:m.lining,cloth:!m.skin&&(family==='body'||/ribbon|cloth|bow|tie/i.test(m.name)),color:map?0xffffff:new THREE.Color().fromArray(m.color)});
     // Head meshes contain layered bangs, eyes and lashes. Expanding their
     // backs with a screen-space outline paints black triangles over the face.
     // Their original textures already supply the fine line work.

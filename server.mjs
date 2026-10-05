@@ -1,3 +1,4 @@
+import {checkGitHubUpdate,prepareGitHubUpdate} from './tools/github-update.mjs';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,6 +19,7 @@ const jobs=new Map();
 const savedOutputs=new Map();
 const renderedOutputs=new Map();
 async function body(req,limit){const chunks=[];let size=0;for await(const chunk of req){size+=chunk.length;if(size>limit)throw new Error('上传内容超过允许大小');chunks.push(chunk);}return Buffer.concat(chunks);}
+const appVersion=JSON.parse(await readFile(path.join(root,'package.json'),'utf8')).version;let pendingUpdate=null;
 const startedAt=Date.now();
 const writeSession=randomUUID()+randomUUID();
 function python(args){return new Promise((resolve,reject)=>{
@@ -75,6 +77,8 @@ const server=http.createServer(async(req,res)=>{
    const task=encodeMP4(input,output,{...config,fps:url.searchParams.get('fps')==='60'?60:30,includeAudio:url.searchParams.get('audio')!=='false'});jobs.set('mp4',task);try{await task;}finally{jobs.delete('mp4');}
    res.writeHead(200,{'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify({url:'/exports/'+encodeURIComponent(stem+'.mp4'),name:stem+'.mp4'}));return;
   }
+  if(req.method==='POST'&&route==='/api/update/prepare'){localWrite(req);pendingUpdate=await prepareGitHubUpdate(root,appVersion);res.writeHead(200,{'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify(pendingUpdate));return;}
+  if(req.method==='POST'&&route==='/api/update/apply'){localWrite(req);if(!pendingUpdate||url.searchParams.get('token')!==pendingUpdate.token)throw new Error('请先下载并检查更新包');if(jobs.size)throw new Error('资源转换仍在进行，请稍后更新');const helper=spawn(process.execPath,[path.join(root,'tools/apply-update.mjs'),pendingUpdate.token,String(process.pid)],{cwd:root,windowsHide:true,detached:true,stdio:'ignore'});helper.unref();res.writeHead(200,{'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify({restarting:true,startedAt}));setTimeout(()=>{server.closeAllConnections();server.close(()=>process.exit(0));},500);return;}
   if(req.method==='POST'&&route==='/api/export'){
    localWrite(req);
    const name=url.searchParams.get('name')||'export.json';if(name.length>160||/[\\/\x00-\x1f<>:"|?*]/.test(name)||!/^.+\.(json|zip|glb|vmd|png|webm)$/i.test(name))throw new Error('导出文件名不合法');
@@ -84,12 +88,13 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==='POST'&&route==='/api/local-asset'){
    localWrite(req);
    const id=localID(url.searchParams.get('id')),name=url.searchParams.get('name')||'';
-   if(name.length>160||/[\\/\x00-\x1f<>:"|?*]/.test(name)||/[. ]$/.test(name)||/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name)||!/^.+\.(json|glb|gltf|fbx|obj|mtl|pmx|bin|png|jpe?g|bmp|tga|webp|vmd|wav|mp3|ogg|m4a|flac|mp4|webm|mov)$/i.test(name))throw new Error('导入文件名不合法');
+   if(name.length>160||/[\\/\x00-\x1f<>:"|?*]/.test(name)||/[. ]$/.test(name)||/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name)||!/^.+\.(json|glb|gltf|fbx|obj|mtl|pmx|bin|png|jpe?g|bmp|tga|webp|vmd|wav|mp3|ogg|m4a|flac|mp4|webm|mov|hdr|exr)$/i.test(name))throw new Error('导入文件名不合法');
    const directory=path.join(importedRoot,id);await mkdir(directory,{recursive:true});const chunks=[];let size=0;
    for await(const chunk of req){size+=chunk.length;if(size>250*1024*1024)throw new Error('单个导入文件不能超过 250 MB');chunks.push(chunk);}
    await writeFile(path.join(directory,name),Buffer.concat(chunks));res.writeHead(200,{'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify({url:'/local-assets/'+id+'/'+encodeURIComponent(name),path:'resources/imported/'+id+'/'+name}));return;
   }
   if(req.method!=='GET'&&req.method!=='HEAD'){res.writeHead(405);res.end();return;}
+  if(route==='/api/update/check'){const info=await checkGitHubUpdate(appVersion);res.writeHead(200,{'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify(info));return;}
   if(route==='/api/health'){res.writeHead(200,{'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify({app:'227-motion-studio',pid:process.pid,root,startedAt}));return;}
   if(route.startsWith('/saved-outputs/')){const p=savedOutputs.get(route.slice(15));if(!p)throw new Error('保存链接已过期，文件仍在选定目录');await serve(res,p,req);return;}
   if(route.startsWith('/api/local-assets/')){const id=localID(route.slice(18));const files=(await readdir(path.join(importedRoot,id),{withFileTypes:true})).filter(f=>f.isFile()).map(f=>({name:f.name,url:'/local-assets/'+id+'/'+encodeURIComponent(f.name)}));res.writeHead(200,{'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify({files}));return;}

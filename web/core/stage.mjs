@@ -10,13 +10,13 @@ export async function loadBuiltinStage(item){
  const missing=[],textures=new Set(),materials=new Set(),geometries=new Set(),skeletons=new Set(),scrolls=[],lights=[],textureCache=new Map(),loader=new T.TextureLoader();
  let disposed=false;
  const dispose=()=>{if(disposed)return;disposed=true;root.removeFromParent();for(const s of skeletons)s.dispose();for(const g of geometries)g.dispose();for(const m of materials)m.dispose();for(const t of textures)t.dispose();};
- async function texture(url,{lightmap=false,repeat=[1,1],offset=[0,0],scroll=[0,0]}={}){
+ async function texture(url,{lightmap=false,linear=false,repeat=[1,1],offset=[0,0],scroll=[0,0]}={}){
   if(!url)return null;
-  const key=JSON.stringify([url,lightmap,repeat,offset,scroll]);
+  const key=JSON.stringify([url,lightmap,linear,repeat,offset,scroll]);
   if(!textureCache.has(key))textureCache.set(key,loader.loadAsync(url).then(t=>{
    // UnityPy exports the same PNG orientation used by the character loader;
    // Three's default flipY=true matches these unmodified Unity mesh UVs.
-   textures.add(t);t.colorSpace=T.SRGBColorSpace;t.anisotropy=4;t.channel=lightmap?1:0;
+   textures.add(t);t.colorSpace=linear?T.NoColorSpace:T.SRGBColorSpace;t.anisotropy=4;t.channel=lightmap?1:0;
    t.wrapS=t.wrapT=lightmap?T.ClampToEdgeWrapping:T.RepeatWrapping;t.repeat.fromArray(repeat);t.offset.fromArray(offset);
    t.updateMatrix();if(!lightmap&&scroll.some(v=>v!==0))scrolls.push({texture:t,start:offset.slice(),speed:scroll});return t;
   }).catch(()=>{missing.push(url);return null;}));
@@ -30,7 +30,8 @@ export async function loadBuiltinStage(item){
   const common={name:source.name||'Stage',map,color:new T.Color().fromArray(source.color||[1,1,1]),opacity:Math.max(0,Math.min(1,source.opacity??1)),transparent:!!source.transparent,side:source.doubleSide?T.DoubleSide:T.FrontSide,depthWrite:!source.transparent};
   // Unity's authored stage surfaces are unlit shaders with optional baked
   // lightmaps. Keep those independent of the editor's character key light.
-  const m=source.name==='Default-Material'?new T.MeshStandardMaterial({...common,roughness:1,metalness:0}):new T.MeshBasicMaterial(common);
+  const physical=stageUsesPBR(source),m=physical?new T.MeshPhysicalMaterial({...common,roughness:source.roughness??.75,metalness:source.metalness??0,sheen:source.sheen??0,sheenColor:0xffffff,emissive:new T.Color().fromArray(source.emission||[0,0,0])}):new T.MeshBasicMaterial(common);
+  if(physical){m.normalMap=await texture(source.normalTexture,{linear:true});m.normalScale.setScalar(source.normalStrength??1);m.roughnessMap=m.metalnessMap=await texture(source.metalRoughTexture,{linear:true});m.emissiveMap=await texture(source.emissionTexture);}
   materials.add(m);m.userData.outlineParameters={visible:false};
   if(source.additive){m.blending=T.AdditiveBlending;m.transparent=true;m.depthWrite=false;m.toneMapped=false;}
   if(lightmap){
@@ -38,7 +39,7 @@ export async function loadBuiltinStage(item){
    // Three's Basic shader divides irradiance by pi; Unity's dLDR stores
    // [0,2] gamma (2^2.2 linear) in an ETC1 RGB texture.
    // https://docs.unity3d.com/cn/2021.3/Manual/Lightmaps-TechnicalInformation.html
-   m.lightMapIntensity=Math.PI*(doc.lightmapEncodings?.[mesh.lightmap]==='dLDR'?4.59482:1);
+   m.lightMapIntensity=(m.isMeshBasicMaterial?Math.PI:1)*(doc.lightmapEncodings?.[mesh.lightmap]==='dLDR'?4.59482:1);
    m.userData.bakedIntensity=m.lightMapIntensity;
    if(doc.lightmapEncodings?.[mesh.lightmap]==='RGBM'){
     m.onBeforeCompile=shader=>{shader.fragmentShader=shader.fragmentShader.replace('lightMapTexel.rgb * lightMapIntensity','lightMapTexel.rgb * pow(5.0 * lightMapTexel.a, 2.2) * lightMapIntensity');};
@@ -57,6 +58,9 @@ export async function loadBuiltinStage(item){
     shader.fragmentShader=shader.fragmentShader.replace('#include <map_fragment>','#include <map_fragment>\n#ifdef USE_MAP\nvec2 secondUV=(stageSecondTransform * vec3(stageRawUV,1.0)).xy;\nvec4 secondSample=texture2D(stageSecondMap,secondUV);\ndiffuseColor.rgb=mix(diffuseColor.rgb,diffuse*secondSample.rgb,0.5);\n#endif');
    };m.customProgramCacheKey=()=> 'stage-two-layers-'+(doc.lightmapEncodings?.[mesh.lightmap]||'none');
   }
+  if(source.normalEncoding==='dxt5nm'&&m.normalMap){const previous=m.onBeforeCompile;m.onBeforeCompile=shader=>{previous(shader);shader.fragmentShader=shader.fragmentShader.replace('texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0','vec3(texture2D(normalMap,vNormalMapUv).ag*2.0-1.0,0.0)');shader.fragmentShader=shader.fragmentShader.replace('mapN.xy *= normalScale;','mapN.z=sqrt(max(0.0,1.0-dot(mapN.xy,mapN.xy)));mapN.xy *= normalScale;');};m.customProgramCacheKey=()=> 'stage-normal-'+(source.shader||'standard');}
+  if(!physical&&(source.brightness>0||(source.emission||[]).some(v=>v>0))){const previous=m.onBeforeCompile,emission={value:new T.Color().fromArray(source.emission||[0,0,0])},brightness={value:Math.min(4,Math.max(0,source.brightness||0))};m.userData.stageEmission=emission;m.userData.stageBrightness=brightness;m.userData.baseEmission=emission.value.clone();m.userData.baseBrightness=brightness.value;
+   m.onBeforeCompile=shader=>{previous(shader);shader.uniforms.stageEmission=emission;shader.uniforms.stageBrightness=brightness;shader.fragmentShader='uniform vec3 stageEmission;uniform float stageBrightness;\n'+shader.fragmentShader;shader.fragmentShader=shader.fragmentShader.replace('vec3 outgoingLight = reflectedLight.indirectDiffuse;','vec3 outgoingLight = reflectedLight.indirectDiffuse + stageEmission + diffuseColor.rgb * stageBrightness;');};m.customProgramCacheKey=()=> 'stage-emission-'+(!!second)+'-'+(doc.lightmapEncodings?.[mesh.lightmap]||'none');}
   return m;
  }
  try{
@@ -75,14 +79,14 @@ export async function loadBuiltinStage(item){
   // Preserve every light's metadata; baked lights are already represented by
   // the lightmaps. At most eight active realtime lights are rendered.
   const activeInHierarchy=index=>{for(let i=index;i>=0;i=doc.nodes[i].parent)if(doc.nodes[i].active===false)return false;return true;};
-  const candidates=doc.lights.filter(l=>l.enabled&&!l.baked&&activeInHierarchy(l.node)).sort((a,b)=>b.intensity-a.intensity).slice(0,8);
+  const candidates=doc.lights.filter(l=>l.enabled&&activeInHierarchy(l.node)).sort((a,b)=>Number(a.baked)-Number(b.baked)||b.intensity-a.intensity).slice(0,8);
   for(const source of candidates){
-   const color=new T.Color().fromArray(source.color),intensity=Math.min(8,Math.max(0,source.intensity))*2;let light;
-   if(source.type===0){light=new T.SpotLight(color,intensity,Math.max(.1,source.range),T.MathUtils.degToRad(Math.min(170,source.angle))/2,.65,2);light.target.position.set(0,0,-1);nodes[source.node].add(light.target);}
+   const color=new T.Color().fromArray(source.color),intensity=Math.min(4,Math.max(0,source.intensity))*(source.baked?.4:1);let light;
+   if(source.type===0){light=new T.SpotLight(color,intensity,Math.max(.1,source.range),T.MathUtils.degToRad(Math.min(170,source.angle))/2,.85,2);light.target.position.set(0,0,-1);nodes[source.node].add(light.target);}
    else if(source.type===1){light=new T.DirectionalLight(color,intensity);light.target.position.set(0,0,-1);nodes[source.node].add(light.target);}
    else if(source.type===2)light=new T.PointLight(color,intensity,Math.max(.1,source.range),2);
    else continue;
-   light.name='原舞台灯光';light.castShadow=false;light.userData.baseIntensity=intensity;nodes[source.node].add(light);lights.push(light);
+   light.name='原舞台柔光';light.castShadow=false;light.userData.nativeStageLight=true;light.userData.bakedProxy=!!source.baked;light.userData.baseIntensity=intensity;nodes[source.node].add(light);lights.push(light);
   }
   const animations=[];
   for(const animation of doc.animations||[]){
@@ -104,8 +108,9 @@ export async function loadBuiltinStage(item){
    for(const entry of scrolls){entry.texture.offset.set(entry.start[0]+entry.speed[0]*seconds,entry.start[1]+entry.speed[1]*seconds);entry.texture.updateMatrix();}
    root.updateMatrixWorld(true);
   }
-  function setLights(enabled=true,strength=1){const value=enabled?Math.max(0,Math.min(3,Number.isFinite(strength)?strength:1)):0;for(const light of lights){light.visible=enabled;light.intensity=light.userData.baseIntensity*value;}for(const material of materials)if(material.userData.bakedIntensity!==undefined)material.lightMapIntensity=material.userData.bakedIntensity*value;}
+  function setLights(enabled=true,strength=1){const value=enabled?Math.max(0,Math.min(3,Number.isFinite(strength)?strength:1)):0;for(const light of lights){light.visible=enabled;light.intensity=light.userData.baseIntensity*value;}for(const material of materials){if(material.userData.bakedIntensity!==undefined)material.lightMapIntensity=material.userData.bakedIntensity*value;if(material.userData.stageEmission)material.userData.stageEmission.value.copy(material.userData.baseEmission).multiplyScalar(value);if(material.userData.stageBrightness)material.userData.stageBrightness.value=material.userData.baseBrightness*value;}}
   update(0);
   return {root,name:item.name||doc.id,id:doc.id,builtin:true,missing:[...new Set(missing)],update,setLights,dispose,lightCount:doc.lights.length,realtimeLightCount:lights.length,animationCount:animations.length,ambient:doc.ambient,fog:doc.fog};
  }catch(error){dispose();throw error;}
 }
+export function stageUsesPBR(source){return source.name==='Default-Material'||!!source.normalTexture||!!source.metalRoughTexture||/standard|(?:^|\/)lit$|pbr/i.test(source.shader||'')&&!/unlit/i.test(source.shader||'');}

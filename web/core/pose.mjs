@@ -14,9 +14,9 @@ export class PoseSolver{
  }
  frame(world,points,frame,facePoints=[]){
   const model=this.model,keys={};if(world.length<33)return keys;
-  const previous=model.bones.map(b=>({b,p:b.position.clone(),q:b.quaternion.clone()})),root=model.motionRoot,rootP=root.position.clone(),rootQ=root.quaternion.clone();
+  const previous=model.bones.map(b=>({b,p:b.position.clone(),q:b.quaternion.clone()})),root=model.motionRoot,rootP=root.position.clone(),rootQ=root.quaternion.clone(),placement=root.parent;
   try{
-   resetBones(model.bones);root.position.set(0,0,0);root.quaternion.identity();root.updateMatrixWorld(true);
+   root.removeFromParent();resetBones(model.bones);root.position.set(0,0,0);root.quaternion.identity();root.updateMatrixWorld(true);
    let source=world;if(this.options.mirror){source=world.slice();for(const [a,b] of PAIRS){source[a]=world[b];source[b]=world[a];}}
    const p=source.map(v=>new T.Vector3((this.options.mirror?1:-1)*v.x,-v.y,v.z)),hips=p[23].clone().add(p[24]).multiplyScalar(.5),shoulders=p[11].clone().add(p[12]).multiplyScalar(.5),spine=shoulders.clone().sub(hips).normalize();
    const delta=bodyBasis(p[24].clone().sub(p[23]),spine.clone()).multiply(this.restBasis.clone().invert());
@@ -33,7 +33,7 @@ export class PoseSolver{
    for(const name of tracked){const b=this.human[name];if(!b)continue;const last=this.last.get(name),indices=SEGMENTS[name],visible=(indices||[11,12,23,24]).every(i=>(source[i].visibility??1)>.6);let q=b.quaternion.clone();if(last)q=visible?last.clone().slerp(q,1-this.options.smoothing):last.clone();this.last.set(name,q.clone());keys[b.userData.key]={frame,position:b.userData.rest.position.toArray(),quaternion:q.toArray(),curve:[20,20,107,107]};}
    if(this.options.rootMotion&&this.human.Hips&&points.length>=33){const h={x:(points[23].x+points[24].x)/2,y:(points[23].y+points[24].y)/2};this.firstHip??={...h,height:Math.max(.15,Math.abs((points[27].y+points[28].y)/2-points[0].y))};const key=keys[this.human.Hips.userData.key],scale=this.height/this.firstHip.height;key.position[0]+=(h.x-this.firstHip.x)*scale*(this.options.mirror?1:-1);key.position[1]+=(this.firstHip.y-h.y)*scale;}
    return keys;
-  }finally{for(const {b,p,q} of previous){b.position.copy(p);b.quaternion.copy(q);}root.position.copy(rootP);root.quaternion.copy(rootQ);root.updateMatrixWorld(true);}
+  }finally{for(const {b,p,q} of previous){b.position.copy(p);b.quaternion.copy(q);}root.position.copy(rootP);root.quaternion.copy(rootQ);placement?.add(root);root.updateWorldMatrix(true,true);}
  }
 }
 export class LocalPoseDetector{

@@ -1,3 +1,4 @@
+import {projectAccessoryOut} from './surface-contact.mjs';
 import {Vector3,Quaternion} from 'three';
 import {autoMap} from './rig.mjs';
 
@@ -138,7 +139,7 @@ function constrain(position,anchor,goal,length,limit,colliders,clearances){
  }
 }
 
-export function secondaryMotion(model,{time=0,token=null,strength=.65,wind=0}={}){
+export function secondaryMotion(model,{time=0,token=null,strength=.65,wind=0,clothContact=true}={}){
  strength=clamp(Number.isFinite(strength)?strength:.65,0,1);wind=clamp(Number.isFinite(wind)?wind:0,-2,2);
  const chains=candidates(model),elapsed=time-(model.secondaryTime??time);
  const continuous=model.secondaryToken===token&&elapsed>0&&elapsed<=.12&&strength>0,dt=continuous?elapsed:0;
@@ -167,6 +168,7 @@ export function secondaryMotion(model,{time=0,token=null,strength=.65,wind=0}={}
     c.velocity.addScaledVector(force,h).multiplyScalar(Math.exp(-p.damping*h));
     c.position.addScaledVector(c.velocity,h);
    }
+   if(clothContact&&!['hair','fringe'].includes(c.type))projectAccessoryOut(c.position,(model.meshes||[]).map(m=>m.userData.clothSurface).filter(Boolean));
    constrain(c.position,a,target,a.distanceTo(target),limit,nearby,c.clearances);
    if(h>0)c.velocity.copy(c.position).sub(old).sub(carry).divideScalar(h).clampLength(0,length*10+.15);
   }

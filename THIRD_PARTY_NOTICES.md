@@ -20,6 +20,7 @@ Google MediaPipe model bundles are distributed unmodified in `web/models`. Exact
 - Pose Heavy and Full: [BlazePose GHUM 3D model card](https://storage.googleapis.com/mediapipe-assets/Model%20Card%20BlazePose%20GHUM%203D.pdf).
 - Face detector: [BlazeFace model card](https://storage.googleapis.com/mediapipe-assets/MediaPipe%20BlazeFace%20Model%20Card%20%28Short%20Range%29.pdf).
 - Face mesh: [Face Mesh V2 model card](https://storage.googleapis.com/mediapipe-assets/Model%20Card%20MediaPipe%20Face%20Mesh%20V2.pdf).
+- Hands: [MediaPipe Hand Landmarker](https://developers.google.com/edge/mediapipe/solutions/vision/hand_landmarker), 21 hand landmarks; Apache-2.0 model bundle, exact URL and checksum in the manifest.
 - Facial expression predictor: [Blendshape V2 model card](https://storage.googleapis.com/mediapipe-assets/Model%20Card%20Blendshape%20V2.pdf).
 
 [Apache-2.0 license](licenses/MediaPipe-APACHE-2.0.txt). These are landmark and expression models, not identity recognition or semantic activity classifiers.

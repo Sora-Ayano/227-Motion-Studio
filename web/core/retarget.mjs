@@ -1,9 +1,11 @@
+import {resolveLimbContact} from './limb-contact.mjs';
 import { Quaternion, Vector3, Matrix4 } from 'three';
 import { sampleBone, sampleMorph, bracket, bezier } from './vmd.mjs';
 import { autoMap, computeAlignments, canonicalPositions, MMD_PARENT } from './rig.mjs';
 import { resolveCloth,restoreClothGeometry,prepareCloth } from './cloth.mjs';
 import {getGameMotion,applyGameBones,gameMorphValue,extractNativeRoot} from './game-motion.mjs';
 import {secondaryMotion} from './secondary.mjs';
+import {extractCapturedRoot} from './capture-root.mjs';
 export const MAPPING={
  BodyPelvis:'下半身',BodySpine1:'上半身',BodySpine2:'上半身2',BodyNeck:'首',BodyHead:'頭',
  BodyShoulderL:'左肩',BodyShoulderR:'右肩',BodyUpperArmL:'左腕',BodyUpperArmR:'右腕',BodyUpperArmTwistL:'左腕捩',BodyUpperArmTwistR:'右腕捩',
@@ -25,7 +27,7 @@ export function captureRest(object,bones){object.updateMatrixWorld(true);for(con
 export function resetBones(bones){for(const b of bones){const r=b.userData.rest;b.position.copy(r.position);b.quaternion.copy(r.quaternion);b.scale.copy(r.scale);}}
 export function setWorldQuaternion(bone,q){bone.parent.updateWorldMatrix(true,false);bone.quaternion.copy(bone.parent.getWorldQuaternion(new Quaternion()).invert().multiply(q));bone.updateWorldMatrix(false,true);}
 export class Retargeter{
- constructor(model){this.model=model;this.rig=autoMap(model.bodyBones);this.mapping={...MAPPING,...this.rig.mapping};this.settings={scale:.08,ik:true,rootMotion:true,armAngle:35,cloth:true,clothMargin:.006};this.sourcePositions=model.mmdPositions||null;this.restFeet={};for(const s of ['L','R']){const jp=s==='L'?'左':'右',f=model.bodyBones.find(b=>this.mapping[b.name]===jp+'足首');if(f)this.restFeet[s]=f.userData.rest.worldPosition.clone().multiplyScalar(model.profile?.bodyScale||1);}}
+ constructor(model){this.model=model;this.rig=autoMap(model.bodyBones);this.mapping={...MAPPING,...this.rig.mapping};this.settings={scale:.08,ik:true,rootMotion:true,armAngle:35,cloth:true,clothMargin:.006,selfCollision:true,clothThickness:.004,clothFriction:.35,clothQuality:'balanced',limbContact:false};this.sourcePositions=model.mmdPositions||null;this.restFeet={};for(const s of ['L','R']){const jp=s==='L'?'左':'右',f=model.bodyBones.find(b=>this.mapping[b.name]===jp+'足首');if(f)this.restFeet[s]=f.userData.rest.worldPosition.clone().multiplyScalar(model.profile?.bodyScale||1);}}
  calibrate(positions=null){this.sourcePositions=positions;this._alignmentSignature='';}
  alignments(){const signature=JSON.stringify([this.mapping,this.settings.armAngle,this.sourcePositions]);if(signature!==this._alignmentSignature){this._alignments=computeAlignments(this.model,this.mapping,this.sourcePositions||canonicalPositions(this.settings.armAngle));this._alignmentSignature=signature;}return this._alignments;}
  diagnostics(clip){this.rig=autoMap(this.model.bodyBones,this.mapping);const known=new Set([...Object.values(this.mapping),...Object.keys(MMD_PARENT),...Object.keys(parent),'全ての親','センター','グルーブ','左足ＩＫ','右足ＩＫ','左足IK','右足IK','左足D','右足D','左ひざD','右ひざD','左足首D','右足首D']);
@@ -55,7 +57,9 @@ export class Retargeter{
   // Native keyframes are absolute local transforms and win over retargeted motion.
   for(const b of model.bodyBones){const keys=edits.bones[b.userData.key],k=sampleNative(keys,frame);if(k){b.position.fromArray(k.position);b.quaternion.fromArray(k.quaternion);if(k.scale)b.scale.fromArray(k.scale);b.updateMatrixWorld(true);}else if(keys){b.position.copy(b.userData.rest.position);b.quaternion.copy(b.userData.rest.quaternion);b.scale.copy(b.userData.rest.scale);b.updateMatrixWorld(true);}}
   if(game&&!clip.disabledBody)extractNativeRoot(model);
-  if(this.settings.cloth)resolveCloth(model,this.mapping,this.settings.clothMargin??.006,{time:frame/30,token:clip,native:!!game,inertia:game?0:this.settings.clothInertia??.65,wind:game?0:this.settings.clothWind??0});
+  else if(clip.capture?.rootSpace==='hips-local'||clip.choreography?.rootSpace==='hips-local'||/视频捕捉/.test(clip.name||''))extractCapturedRoot(model,this.rig.human.Hips);
+  if(this.settings.limbContact&&!game)resolveLimbContact(model,this.mapping);
+  if(this.settings.cloth)resolveCloth(model,this.mapping,this.settings.clothMargin??.006,{time:frame/30,token:clip,native:!!game,inertia:game?0:this.settings.clothInertia??.65,wind:game?0:this.settings.clothWind??0,selfCollision:this.settings.selfCollision!==false,thickness:this.settings.clothThickness??.004,friction:this.settings.clothFriction??.35,quality:this.settings.clothQuality||'balanced',fabric:this.settings.clothFabric||'cotton'});
   model.updateAttachments();
   if(game&&!clip.disabledFace)applyGameBones(model,game,frame,'face',edits.bones);
   for(const b of model.bones.filter(b=>!model.bodyBones.includes(b))){const source=this.mapping[b.name];
@@ -65,7 +69,7 @@ export class Retargeter{
 
   for(const m of model.morphs){let weight=game&&!clip.disabledFace?gameMorphValue(game,m.name,frame):0;for(const [n,keys] of Object.entries(clip.morphs))if(m.name===n||m.name.endsWith('BS_'+MORPH_MAPPING[n]))weight+=sampleMorph(keys,frame);
    if(Object.hasOwn(edits.morphs,m.key))weight=sampleMorph(edits.morphs[m.key],frame);m.mesh.morphTargetInfluences[m.index]=Math.min(1,Math.max(0,weight));}
-  model.motionRoot.updateMatrixWorld(true);if(this.settings.secondary!==false)secondaryMotion(model,{time:frame/30,token:clip,strength:this.settings.secondaryStrength??.65,wind:this.settings.clothWind??0});
+  model.motionRoot.updateMatrixWorld(true);if(this.settings.secondary!==false)secondaryMotion(model,{time:frame/30,token:clip,strength:this.settings.secondaryStrength??.65,wind:this.settings.clothWind??0,clothContact:this.settings.accessoryContact!==false});
  }
  solveLeg(s,target,orientation){
   const side=s==='L'?'左':'右',find=n=>this.model.bodyBones.find(b=>this.mapping[b.name]===side+n);const hip=find('足'),knee=find('ひざ'),foot=find('足首');if(!hip||!knee||!foot)return;
