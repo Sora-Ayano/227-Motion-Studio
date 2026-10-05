@@ -26,6 +26,11 @@ config.local.json
 .agents/
 # Local resources and generated work
 assets/
+!desktop-unity/Assets/
+desktop-unity/Assets/*
+!desktop-unity/Assets/Scripts/
+!desktop-unity/Assets/Editor/
+!desktop-unity/Assets/Resources/
 resources/
 cache/
 exports/
