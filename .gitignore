@@ -2,6 +2,13 @@
 node_modules/
 python-libs/
 runtime/
+desktop-unity/Library/
+desktop-unity/Temp/
+desktop-unity/Obj/
+desktop-unity/UserSettings/
+desktop-unity/Assets/Plugins/*.dll
+*.pdb
+*.mdb
 .npm-cache/
 .pip-cache/
 __pycache__/

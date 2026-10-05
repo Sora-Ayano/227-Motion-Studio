@@ -1,0 +1,14 @@
+Library/
+Temp/
+Obj/
+Logs/
+UserSettings/
+Build/
+Builds/
+MemoryCaptures/
+Assets/Plugins/*.dll
+*.csproj
+*.sln
+*.pdb
+*.mdb
+*.log

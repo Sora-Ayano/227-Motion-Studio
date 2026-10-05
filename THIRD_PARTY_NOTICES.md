@@ -13,6 +13,15 @@ The original implementation of **22/7 Motion Studio** is copyright (c) 2026 Sora
 
 npm installs the unmodified dependency packages. Their notices remain with those packages.
 
+## Desktop and full installer
+
+- **Unity**, proprietary engine: [Unity](https://unity.com/). The native player is compiled using the installed Unity editor. Its engine binaries retain Unity's licensing; the project MIT license covers the original C# / HLSL implementation only.
+- **Newtonsoft.Json**, MIT: [source and license](https://github.com/JamesNK/Newtonsoft.Json). Copied from the installed editor for native JSON loading; upstream copyright and MIT notice are retained.
+- **Node.js**, MIT and bundled dependency notices: [official source](https://github.com/nodejs/node). Included in the full installer, with its upstream license files.
+- **Python**, PSF license and third-party notices: [official source](https://www.python.org/). The embeddable runtime and its license are included in the full installer.
+- The full installer also includes the external **FFmpeg** executable and its build-specific GPL notices and source download references. This is separate from the source distribution, which does not bundle it. Bundled game assets retain their original licenses and are not relicensed by MIT.
+- **Inno Setup** is used only as the official build tool: [source and license](https://github.com/jrsoftware/issrc). Its compiler is not bundled in the editor. The installer contains its setup runtime.
+
 ## Bundled public AI models
 
 Google MediaPipe model bundles are distributed unmodified in `web/models`. Exact versioned download URLs, sizes and SHA-256 hashes are recorded in `manifest.json`. All use Apache-2.0, as identified in the model cards:

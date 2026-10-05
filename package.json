@@ -1,6 +1,6 @@
 {
   "name": "227-motion-studio",
-  "version": "0.3.2",
+  "version": "0.4.0-preview.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -19,6 +19,7 @@
   "engines": {
     "node": ">=22"
   },
+  "nativeEngine": "Unity 2022.3 LTS",
   "repository": {
     "type": "git",
     "url": "https://github.com/Sora-Ayano/227-Motion-Studio.git"
