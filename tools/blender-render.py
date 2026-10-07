@@ -6,11 +6,13 @@ sys.path.insert(0,str(Path(__file__).resolve().parent))
 from blender_look import apply_look,gpu_cycles
 from blender_materials import character_materials
 from blender_grade import editor_grade
+from blender_physics import configure_cloth,body_contact_surface,inherited_property,restore_gltf_physics
 
 folder=Path(sys.argv[sys.argv.index('--')+1]).resolve();spec=json.loads((folder/'settings.json').read_text(encoding='utf8'))
 bpy.ops.object.select_all(action='SELECT');bpy.ops.object.delete(use_global=False)
 scene=bpy.context.scene;scene.render.fps=spec['fps'];scene.frame_start=1;scene.frame_end=spec['count']
 bpy.ops.import_scene.gltf(filepath=str(folder/'scene.glb'),merge_vertices=False)
+restore_gltf_physics(folder/'scene.glb')
 for obj in bpy.data.objects:
  if obj.type=='MESH' and any(m and m.get('studioToon') for m in obj.data.materials):
   for modifier in obj.modifiers:
@@ -81,24 +83,25 @@ for obj in list(bpy.data.objects):
     if target.data.has_custom_normals:
      with bpy.context.temp_override(object=target,active_object=target):bpy.ops.mesh.customdata_custom_splitnormals_clear()
     for polygon in target.data.polygons:polygon.use_smooth=True
-  cloth=loose.modifiers.new('Blender 实体布料','CLOTH');s=cloth.settings;s.quality=10 if spec['quality']=='fast' else 16;s.mass=.18;s.air_damping=4;s.vertex_group_mass='StudioPin';s.pin_stiffness=1;s.use_dynamic_mesh=False
-  fabric=obj.get('studioFabric',spec.get('fabric','cotton'))
-  s.tension_stiffness=45;s.compression_stiffness=45;s.shear_stiffness=20;s.bending_model='ANGULAR';s.bending_stiffness={'silk':.3,'cotton':1.1,'structured':2.5}.get(fabric,1.1);s.bending_damping=1.5
-  s.tension_damping=8;s.compression_damping=8;s.shear_damping=6
-  c=cloth.collision_settings;c.use_collision=True;c.collision_quality=8;c.distance_min=.0025;c.use_self_collision=True;c.self_distance_min=.001;c.self_friction=.5;c.self_impulse_clamp=.5
-  cloth.point_cache.frame_start=1-spec['fps']*2;cloth.point_cache.frame_end=scene.frame_end;garments.append((family,cloth,loose))
- # Original body mesh now contains only fixed clothing and skin/shoes.
- if any(m and m.name.endswith('_skin') for m in obj.data.materials):
-  obj.modifiers.new('衣料与身体接触','COLLISION');obj.collision.thickness_outer=.001;obj.collision.cloth_friction=6
-  contacts.setdefault(family,[]).append(obj)
+  cloth=loose.modifiers.new('Blender 实体布料','CLOTH')
+  fabric=inherited_property(obj,'studioFabric',spec.get('fabric','cotton'))
+  configure_cloth(cloth,'StudioPin',fabric,1-spec['fps']*2,scene.frame_end,16 if spec['quality']=='fast' else 20)
+  garments.append((family,cloth,loose))
+ # Fixed clothes have open edges next to the pinned waist. Making this entire
+ # mesh a collider catches the moving skirt on those edges and rolls the hem.
+ contact=body_contact_surface(obj,bpy.context.collection)
+ if contact:contacts.setdefault(family,[]).append(contact)
  for mat in obj.data.materials:
   if not mat or not mat.use_nodes:continue
   for node in mat.node_tree.nodes:
    if node.type=='BSDF_PRINCIPLED':
     environment=spec.get('environment',{});custom_fabric=environment.get('enabled') and mat.name.endswith('_cloth')
-    node.inputs['Roughness'].default_value=environment.get('roughness',.75) if custom_fabric else (.62 if mat.name.endswith(('_skin','_face')) else .8)
+    skin=mat.name.endswith(('_skin','_face'))
+    node.inputs['Roughness'].default_value=environment.get('roughness',.75) if custom_fabric else (.58 if skin else .8)
     if 'Sheen Weight' in node.inputs:node.inputs['Sheen Weight'].default_value=environment.get('sheen',.35) if custom_fabric else (.15 if mat.name.endswith('_cloth') else .03)
-    if mat.name.endswith(('_skin','_face')) and 'Subsurface Weight' in node.inputs:node.inputs['Subsurface Weight'].default_value=.035
+    if 'Specular IOR Level' in node.inputs:node.inputs['Specular IOR Level'].default_value=.23 if skin else .3
+    if skin and 'Subsurface Weight' in node.inputs:
+     node.inputs['Subsurface Weight'].default_value=.055;node.inputs['Subsurface Radius'].default_value=(.7,.3,.18);node.inputs['Subsurface Scale'].default_value=.012
 for family,modifier,_ in garments:
  collection=bpy.data.collections.get(family+'_Contacts') or bpy.data.collections.new(family+'_Contacts')
  if collection.name not in scene.collection.children:scene.collection.children.link(collection)
@@ -187,6 +190,8 @@ if hasattr(scene.render,'compositor_device'):scene.render.compositor_device='GPU
 engines=scene.render.bl_rna.properties['engine'].enum_items.keys()
 scene.render.engine=('BLENDER_EEVEE' if 'BLENDER_EEVEE' in engines else 'BLENDER_EEVEE_NEXT') if spec['quality']=='fast' else 'CYCLES'
 device='GPU (EEVEE)'
+if spec['quality']=='fast':
+ scene.eevee.taa_render_samples=32;scene.eevee.volumetric_samples=32
 if scene.render.engine=='CYCLES':
  scene.cycles.samples=24 if spec['quality']=='balanced' else 64;scene.cycles.use_denoising=True;scene.cycles.use_adaptive_sampling=True;scene.cycles.adaptive_threshold=.05;device=gpu_cycles(scene)
 scene.render.resolution_x=spec['width'];scene.render.resolution_y=spec['height'];scene.render.resolution_percentage=100;scene.render.image_settings.file_format='PNG';scene.render.image_settings.color_mode='RGBA' if scene.render.film_transparent else 'RGB';scene.render.image_settings.compression=10

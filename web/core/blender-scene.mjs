@@ -43,7 +43,7 @@ export async function captureBlenderScene({models,apply,camera,count,fps,cancell
   const c=camera();c.updateWorldMatrix(true,false);cameras.push({matrix:c.matrixWorld.toArray(),fov:c.fov||35,ortho:c.isOrthographicCamera?(c.top-c.bottom)/c.zoom:0,near:c.near,far:c.far});
   if(i%30===0){progress(i,count,'收集骨架、表情与镜头');await new Promise(requestAnimationFrame);}
  }
- for(const [dst,data]of samples){for(const key of ['position','quaternion','scale'])tracks.push(new (key==='quaternion'?T.QuaternionKeyframeTrack:T.VectorKeyframeTrack)(dst.name+'.'+key,times,data[key]));if(data.morphs.length)tracks.push(new T.NumberKeyframeTrack(dst.name+'.morphTargetInfluences',times,data.morphs));}
+ for(const [dst,data]of samples){for(const key of ['position','quaternion','scale'])tracks.push(new (key==='quaternion'?T.QuaternionKeyframeTrack:T.VectorKeyframeTrack)(dst.name+'.'+key,times,data[key]).optimize());if(data.morphs.length)tracks.push(new T.NumberKeyframeTrack(dst.name+'.morphTargetInfluences',times,data.morphs).optimize());}
  scene.updateMatrixWorld(true);const glb=await new GLTFExporter().parseAsync(scene,{binary:true,animations:[new T.AnimationClip('Web timeline',count/fps,tracks)],onlyVisible:true});
  let image=null;if(backdrop?.image){const canvas=document.createElement('canvas');canvas.width=backdrop.image.width;canvas.height=backdrop.image.height;canvas.getContext('2d').drawImage(backdrop.image,0,0);image=canvas.toDataURL('image/png').split(',')[1];}
  return {glb,cameras,backdrop:image};

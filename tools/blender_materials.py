@@ -13,6 +13,12 @@ def character_materials(spec,folder):
   if base.links:color=base.links[0].from_socket
   else:
    rgb=tree.nodes.new('ShaderNodeRGB');rgb.outputs[0].default_value=base.default_value;color=rgb.outputs[0]
+  if mat.name.endswith(('_skin','_face')):
+   # A baked chin/neck tint in the game atlas must not become a second deep
+   # shadow under physical studio lighting. Limit the correction to the neck
+   # in undeformed coordinates; eyes, lips, underwear and animation are intact.
+   coordinates=tree.nodes.new('ShaderNodeTexCoord');separate=tree.nodes.new('ShaderNodeSeparateXYZ');tree.links.new(coordinates.outputs['Generated'],separate.inputs[0]);region=tree.nodes.new('ShaderNodeMapRange');region.interpolation_type='SMOOTHERSTEP';region.clamp=True;region.inputs['From Min'].default_value=.84 if mat.name.endswith('_skin') else .12;region.inputs['From Max'].default_value=.97 if mat.name.endswith('_skin') else .3;region.inputs['To Min'].default_value=0 if mat.name.endswith('_skin') else .8;region.inputs['To Max'].default_value=.8 if mat.name.endswith('_skin') else 0;tree.links.new(separate.outputs['Z'],region.inputs['Value'])
+   lifted=tree.nodes.new('ShaderNodeMixRGB');lifted.blend_type='LIGHTEN';lifted.inputs[0].default_value=1;lifted.inputs[2].default_value=(.5,.37,.3,1);tree.links.new(color,lifted.inputs[1]);corrected=tree.nodes.new('ShaderNodeMixRGB');tree.links.new(region.outputs[0],corrected.inputs[0]);tree.links.new(color,corrected.inputs[1]);tree.links.new(lifted.outputs[0],corrected.inputs[2]);color=corrected.outputs[0];tree.links.new(color,base)
   # Cycles retains its physical BSDF, with a low albedo floor for anime skin.
   if spec['quality']!='fast':
    tree.links.new(color,shader.inputs['Emission Color']);shader.inputs['Emission Strength'].default_value=.025;continue
@@ -22,7 +28,9 @@ def character_materials(spec,folder):
   ramp=tree.nodes.new('ShaderNodeMapRange');ramp.interpolation_type='SMOOTHERSTEP';ramp.clamp=True;ramp.inputs['From Min'].default_value=.012;ramp.inputs['From Max'].default_value=.25
   shadow=environment.get('characterShadow',.28) if environment.get('enabled') else .28
   ramp.inputs['To Min'].default_value=max(spec.get('lighting',{}).get('ambient',.16),1-shadow/.7);ramp.inputs['To Max'].default_value=1;tree.links.new(luma.outputs[0],ramp.inputs['Value'])
-  dark=color;data=mat.get('studioShadowPNG')
+  # The game's neck/chin skin atlas is a shadow-color lookup, not a second
+  # albedo layer. Actual studio occlusion provides that shadow in Blender.
+  dark=color;data=None if mat.name.endswith(('_skin','_face')) else mat.get('studioShadowPNG')
   if data:
    filename=folder/('shadow-%d.png'%index);filename.write_bytes(base64.b64decode(data));texture=tree.nodes.new('ShaderNodeTexImage');texture.image=bpy.data.images.load(str(filename));uv=tree.nodes.new('ShaderNodeUVMap');uv.uv_map='UVMap';vector=uv.outputs[0]
    if mat.get('studioShadowFlipY',True):

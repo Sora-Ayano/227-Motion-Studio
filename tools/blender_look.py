@@ -31,9 +31,10 @@ def apply_look(scene,settings=None,center=(0,0,1),span=1,folder=None):
   linear=[v/12.92 if v<=.04045 else ((v+.055)/1.055)**2.4 for v in encoded]
   return tuple(v*.65+d*.35 for v,d in zip(linear,default))
  azimuth=math.radians(lighting.get('azimuth',-34));elevation=math.radians(lighting.get('elevation',42));key_offset=(4*math.sin(azimuth)*math.cos(elevation),4*math.cos(azimuth)*math.cos(elevation),4*math.sin(elevation))
- for name,offset,power,color,size in [('主光',key_offset,300,rgb('key',p['key']),3),('补光',(2.5,2,1.2),160,rgb('fill',p['fill']),3.5),('轮廓',(1.2,-1.8,1.8),150*(1+render.get('rim',0)*4),rgb('rim',p['rim']),2.5)]:
+ for name,offset,power,color,size in [('主光',key_offset,300,rgb('key',p['key']),3),('补光',(2.5,2,1.2),160,rgb('fill',p['fill']),3.5),('轮廓',(1.2,-1.8,1.8),150*(1+render.get('rim',0)*4),rgb('rim',p['rim']),2.5),('暖色反光板',(0,2.1,-.35),45,(1,.88,.8),2.4)]:
   data=bpy.data.lights.new('柔光 · '+name,'AREA');data.energy=power*span*span*settings.get('light',1)*lighting.get('intensity',1);data.color=color;data.shape='DISK';data.size=size*span*(.75+lighting.get('softness',.6)*.5)
   obj=bpy.data.objects.new(data.name,data);scene.collection.objects.link(obj);obj['studio_softbox']=True;obj.location=Vector(center)+Vector(offset)*span;obj.rotation_euler=(Vector(center)-obj.location).to_track_quat('-Z','Y').to_euler()
+  if name=='暖色反光板' and hasattr(data,'specular_factor'):data.specular_factor=0
  return p
 
 def gpu_cycles(scene):

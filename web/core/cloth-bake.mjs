@@ -1,7 +1,7 @@
 import {Vector3} from 'three';import {unzlibSync} from 'fflate';
 import {writeSurface} from './cloth-surface.mjs';
 export function clothPoseSignature(clip,edits,settings,calibration={}){
- const text=JSON.stringify(['cloth-full-garment-3',clip,edits,settings,calibration.mapping,calibration.sourcePositions]);let hash=2166136261;
+ const text=JSON.stringify(['cloth-body-contact-4',clip,edits,settings,calibration.mapping,calibration.sourcePositions]);let hash=2166136261;
  for(let i=0;i<text.length;i++)hash=Math.imul(hash^text.charCodeAt(i),16777619);return text.length+':'+(hash>>>0).toString(16);
 }
 export function attachClothBake(model,data,clip){

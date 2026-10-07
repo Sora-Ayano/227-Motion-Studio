@@ -72,7 +72,7 @@ if not args.verify_only:
         if name in {'server.mjs','package.json','package-lock.json','config.example.json','.gitattributes','.gitignore','README.md','LICENSE','NOTICE','THIRD_PARTY_NOTICES.md','requirements.txt'}:
             return True
         if len(relative.parts)==2 and relative.parts[0]=='tools' and relative.suffix in {'.mjs','.ps1','.py'}:
-            return relative.name in {'blender-render.mjs', 'blender-render.py', 'blender_look.py', 'blender_materials.py', 'blender_grade.py', 'native-look.mjs','import-smpl-motion.mjs', 'comfy-bridge.mjs', 'blender-bake.mjs', 'blender-cloth.py', 'blender-character.py', 'setup-blender.mjs', 'open-blender.mjs', 'frame-video.mjs','video-encoder.mjs','mp4.mjs','prepare-vendor.mjs','start-studio.ps1','portable-service.ps1','unity_export.py','github-update.mjs','apply-update.mjs','build-native.ps1','build-native-package.py'}
+            return relative.name in {'blender-render.mjs', 'blender-render.py', 'blender_look.py', 'blender_materials.py', 'blender_grade.py', 'blender_physics.py', 'native-look.mjs','import-smpl-motion.mjs', 'comfy-bridge.mjs', 'blender-bake.mjs', 'blender-cloth.py', 'blender-character.py', 'setup-blender.mjs', 'open-blender.mjs', 'frame-video.mjs','video-encoder.mjs','mp4.mjs','prepare-vendor.mjs','start-studio.ps1','portable-service.ps1','unity_export.py','github-update.mjs','apply-update.mjs','build-native.ps1','build-native-package.py'}
         if relative.parts[0] in {'docs','licenses'}:
             return relative.suffix in {'.md','.txt','.cjs','.json','.iss','.ico'}
         if relative.parts[0]=='web' and len(relative.parts)==2:

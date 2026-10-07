@@ -2,6 +2,8 @@
 import bpy, sys, json, math, struct, zlib, base64
 from pathlib import Path
 from mathutils import Vector
+sys.path.insert(0,str(Path(__file__).resolve().parent))
+from blender_physics import configure_cloth,capsule_surface
 
 args=sys.argv[sys.argv.index('--')+1:]
 source=json.loads(Path(args[0]).read_text(encoding='utf8'))
@@ -38,34 +40,18 @@ for index,surface in enumerate(source['surfaces']):
  for i,mobility in enumerate(surface['mobility']):
   weight=1 if mobility==0 else max(0,1-mobility/.25)*.5
   if weight:pin.add([i],weight,'REPLACE')
- cloth=obj.modifiers.new('Physical fabric','CLOTH');settings=cloth.settings
- settings.quality=12;settings.mass=.15;settings.air_damping=3;settings.vertex_group_mass=pin.name
- settings.pin_stiffness=1;settings.use_dynamic_mesh=False
- settings.tension_stiffness=25;settings.compression_stiffness=25;settings.shear_stiffness=12
- settings.bending_model='ANGULAR';settings.bending_stiffness={'silk':.3,'cotton':1.1,'structured':2.5}.get(surface.get('fabric',source.get('fabric')),1.1)
- settings.tension_damping=8;settings.compression_damping=8;settings.shear_damping=6
- cloth.collision_settings.use_collision=True;cloth.collision_settings.collision_quality=8
- cloth.collision_settings.distance_min=.003;cloth.collision_settings.use_self_collision=True
- cloth.collision_settings.self_distance_min=.001;cloth.collision_settings.self_friction=.5;cloth.collision_settings.self_impulse_clamp=.5
- cloth.point_cache.frame_start=1-source['fps']*2;cloth.point_cache.frame_end=scene.frame_end
+ cloth=obj.modifiers.new('Physical fabric','CLOTH')
+ configure_cloth(cloth,pin.name,surface.get('fabric',source.get('fabric')),1-source['fps']*2,scene.frame_end)
  garments.append((obj,surface,[]))
 
 colliders=[]
 for index in range(len(source['frames'][0]['capsules'])):
- objects=[]
- for kind in ['start','end','shaft']:
-  if kind=='shaft':bpy.ops.mesh.primitive_cylinder_add(vertices=12,radius=1,depth=2)
-  else:bpy.ops.mesh.primitive_uv_sphere_add(segments=12,ring_count=8,radius=1)
-  obj=bpy.context.object;obj.name='BodyCollider';obj.modifiers.new('Body contact','COLLISION');obj.collision.thickness_outer=.001
-  obj.rotation_mode='QUATERNION';objects.append(obj)
- for frame,data in enumerate(source['frames'],1):
-  a,b,r=data['capsules'][index];a,b=Vector(point(a)),Vector(point(b));axis=b-a
-  for obj,kind in zip(objects,['start','end','shaft']):
-   obj.location=a if kind=='start' else b if kind=='end' else (a+b)*.5
-   obj.scale=(r,r,r) if kind!='shaft' else (r,r,max(.0001,axis.length/2))
-   if kind=='shaft' and axis.length:obj.rotation_quaternion=axis.to_track_quat('Z','Y')
-   obj.keyframe_insert('location',frame=frame);obj.keyframe_insert('scale',frame=frame);obj.keyframe_insert('rotation_quaternion',frame=frame)
- colliders.extend(objects)
+ coordinates=[]
+ for data in source['frames']:
+  points,faces=capsule_surface(*data['capsules'][index]);coordinates.append(points)
+ mesh=bpy.data.meshes.new('Rounded body collider');mesh.from_pydata([point(p) for p in coordinates[0]],[],faces);mesh.update()
+ obj=bpy.data.objects.new('BodyCollider',mesh);scene.collection.objects.link(obj);animate_shape(obj,coordinates)
+ obj.modifiers.new('Body contact','COLLISION');obj.collision.thickness_outer=.001;obj.collision.cloth_friction=1;colliders.append(obj)
 
 for frame in range(1-source['fps']*2,1):
  scene.frame_set(frame);deps=bpy.context.evaluated_depsgraph_get()
