@@ -1,3 +1,7 @@
+import {BlenderBake,findBlender} from './tools/blender-bake.mjs';
+import {BlenderRender} from './tools/blender-render.mjs';
+import {ComfyBridge} from './tools/comfy-bridge.mjs';
+import {Readable} from 'node:stream';
 import {checkGitHubUpdate,prepareGitHubUpdate} from './tools/github-update.mjs';
 import http from 'node:http';
 import path from 'node:path';
@@ -15,6 +19,9 @@ const config=JSON.parse(await readFile(path.join(root,'config.example.json'),'ut
 for(const file of ['config.json','config.local.json'])try{Object.assign(config,JSON.parse(await readFile(path.join(root,file),'utf8')));}catch(e){if(e.code!=='ENOENT')throw e;}
 if(process.env.STUDIO_PORT)config.port=Number(process.env.STUDIO_PORT);
 for(const key of ['assetRoot','gameRoot','catalogDatabase','masterRoot','unityPyVendor','motionRoot','ffmpeg'])if(config[key])config[key]=path.resolve(root,config[key]);
+const comfy=new ComfyBridge(config.comfyURL);
+const blenderBake=new BlenderBake(root,config);
+const blenderRender=new BlenderRender(root,config);
 const jobs=new Map();
 const savedOutputs=new Map();
 const renderedOutputs=new Map();
@@ -50,11 +57,43 @@ const server=http.createServer(async(req,res)=>{
   res.setHeader('Content-Security-Policy',"default-src 'self' blob:; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; worker-src 'self' blob:; img-src 'self' blob: data:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; connect-src 'self' blob:; object-src 'none'");
   const host=req.headers.host||'';if(!/^((localhost|127\.0\.0\.1)(:\d+)?|\[::1\](:\d+)?)$/.test(host)){res.writeHead(403);res.end('仅允许本机访问');return;}
   const url=new URL(req.url,'http://localhost');const route=decodeURIComponent(url.pathname);
+  if(route.startsWith('/api/blender-render/')){let result;const id=url.searchParams.get('id');
+   if(req.method==='GET'&&route==='/api/blender-render/status'){result=blenderRender.status(id);if(result.result)renderedOutputs.set(result.result.name,path.join(root,'exports',result.result.name));}
+   else{localWrite(req);if(req.method!=='POST')throw new Error('接口方法无效');
+    if(route==='/api/blender-render/scene')result=await blenderRender.scene(id,await body(req,128*1048576));
+    else if(route==='/api/blender-render/environment')result=await blenderRender.environment(id,await body(req,128*1048576),url.searchParams.get('kind'));
+    else if(route==='/api/blender-render/audio')result=await blenderRender.audio(id,await body(req,250*1048576),Number(url.searchParams.get('offset')),Number(url.searchParams.get('gain')));
+    else{const data=JSON.parse((await body(req,40*1048576)).toString());if(route==='/api/blender-render/start'){if(jobs.has('mp4')||jobs.has('frame-mp4')||blenderRender.busy())throw new Error('已有视频正在导出');result=await blenderRender.create(data);}else if(route==='/api/blender-render/run')result=await blenderRender.run(data.id);else if(route==='/api/blender-render/cancel')result=blenderRender.cancel(data.id);else throw new Error('未知 Blender 渲染操作');}
+   }res.writeHead(200,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(result));return;
+  }
+  if(route.startsWith('/api/cloth-bake/')){let result;
+   if(req.method==='GET'&&route==='/api/cloth-bake/status')result=blenderBake.status(url.searchParams.get('id'));
+   else if(req.method==='GET'&&route==='/api/cloth-bake/available'){const blender=await findBlender(config);result={available:true,version:blender.version};}
+   else {localWrite(req);if(req.method!=='POST')throw new Error('接口方法无效');const data=JSON.parse((await body(req,80*1024*1024)).toString());
+    if(route==='/api/cloth-bake/start')result=await blenderBake.start(data);
+    else if(route==='/api/cloth-bake/cancel')result=blenderBake.cancel(data.id);
+    else throw new Error('未知烘焙操作');}
+   res.writeHead(200,{'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify(result));return;
+  }
+  if(route.startsWith('/api/comfy/')){
+   if(req.method==='GET'&&route==='/api/comfy/media'){const remote=await comfy.media(url.searchParams.get('job'),Number(url.searchParams.get('index')),req.headers.range);const headers={};for(const key of ['content-type','content-length','content-range','accept-ranges'])if(remote.headers.has(key))headers[key]=remote.headers.get(key);res.writeHead(remote.status,headers);Readable.fromWeb(remote.body).pipe(res);return;}
+   let result;
+   if(req.method==='GET'&&route==='/api/comfy/status')result=await comfy.status(url.searchParams.get('id'));
+   else {localWrite(req);if(req.method!=='POST')throw new Error('接口方法无效');
+    if(route==='/api/comfy/upload')result=await comfy.upload(await body(req,24*1024*1024),url.searchParams.get('name')||'viewport.png',req.headers['content-type']);
+    else {const data=JSON.parse((await body(req,3*1024*1024)).toString());
+     if(route==='/api/comfy/connect')result=await comfy.connect(data.endpoint||config.comfyURL||'http://127.0.0.1:8188');
+     else if(route==='/api/comfy/submit')result=await comfy.submit(data);
+     else if(route==='/api/comfy/cancel')result=await comfy.cancel(data.id);
+     else throw new Error('未知 ComfyUI 操作');
+    }
+   }res.writeHead(200,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(result));return;
+  }
   if(req.method==='GET'&&route==='/api/session'){res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({token:writeSession}));return;}
   if(req.method==='GET'&&route==='/api/video-capabilities'){res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify(await videoCapabilities(config)));return;}
   if(route==='/api/save-directory'){res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({directory:path.join(root,'exports')+path.sep}));return;}
   if(req.method==='POST'&&route.startsWith('/api/frame-video/')){localWrite(req);const action=route.slice(17);let result;
-   if(action==='start'){if(jobs.has('mp4')||jobs.has('frame-mp4'))throw new Error('已有视频正在导出');jobs.set('frame-mp4',{starting:true});try{const job=await FrameVideo.create(path.join(root,'exports'),JSON.parse((await body(req,4096)).toString()),config);jobs.set('frame-mp4',job);job.onExpire=()=>{if(jobs.get('frame-mp4')===job)jobs.delete('frame-mp4');};result={id:job.id};}catch(e){jobs.delete('frame-mp4');throw e;}}
+   if(action==='start'){if(jobs.has('mp4')||jobs.has('frame-mp4')||blenderRender.busy())throw new Error('已有视频正在导出');jobs.set('frame-mp4',{starting:true});try{const job=await FrameVideo.create(path.join(root,'exports'),JSON.parse((await body(req,4096)).toString()),config);jobs.set('frame-mp4',job);job.onExpire=()=>{if(jobs.get('frame-mp4')===job)jobs.delete('frame-mp4');};result={id:job.id};}catch(e){jobs.delete('frame-mp4');throw e;}}
    else{const job=jobs.get('frame-mp4');if(!job||job.id!==url.searchParams.get('id'))throw new Error('逐帧导出任务不存在或已结束');
     if(action==='frame'){await job.frame(Number(url.searchParams.get('index')),await body(req,32*1048576));result={frames:job.index};}
     else if(action==='audio'){await job.setAudio(await body(req,250*1048576),Number(url.searchParams.get('offset')),Number(url.searchParams.get('gain')));result={audio:true};}
@@ -62,10 +101,10 @@ const server=http.createServer(async(req,res)=>{
     else if(action==='cancel'){try{await job.cancel();result={cancelled:true};}finally{jobs.delete('frame-mp4');}}else throw new Error('未知逐帧操作');
    }res.writeHead(200,{'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify(result));return;
   }
-  if(req.method==='POST'&&route==='/api/shutdown'){localWrite(req);if(jobs.size)throw new Error('请等待正在进行的编码或资源转换完成后关闭');res.writeHead(200,{'Content-Type':'application/json'});res.end('{"stopped":true}');setTimeout(()=>{server.close();server.closeAllConnections();process.exit(0);},300).unref();return;}
+  if(req.method==='POST'&&route==='/api/shutdown'){localWrite(req);if(jobs.size||blenderRender.busy()||blenderBake.busy())throw new Error('请等待正在进行的编码、Blender 渲染或资源转换完成后关闭');res.writeHead(200,{'Content-Type':'application/json'});res.end('{"stopped":true}');setTimeout(()=>{server.close();server.closeAllConnections();process.exit(0);},300).unref();return;}
   if(req.method==='POST'&&route==='/api/save-output'){
    localWrite(req);
-   const target=url.searchParams.get('path')||'';if(!/^[a-z]:\\/i.test(target)||/[\x00-\x1f<>:"|?*]/.test(target.slice(3))||!/^.+\.(json|zip|glb|vmd|png|webm|mp4)$/i.test(target)||/(?:^|[\\/])\.(?:git|agents|codex|aws)(?:[\\/]|$)/i.test(target))throw new Error('请输入合法的本机完整文件路径与导出扩展名');
+   const target=(url.searchParams.get('path')||'').replaceAll('/','\\');if(!/^[a-z]:\\/i.test(target)||/[\x00-\x1f<>:"|?*]/.test(target.slice(3))||!/^.+\.(json|zip|glb|vmd|png|webm|mp4)$/i.test(target)||/(?:^|[\\/])\.(?:git|agents|codex|aws)(?:[\\/]|$)/i.test(target))throw new Error('请输入合法的本机完整文件路径与导出扩展名');
    const full=path.resolve(target);await mkdir(path.dirname(full),{recursive:true});const source=renderedOutputs.get(url.searchParams.get('render')),overwrite=url.searchParams.get('overwrite')==='true';
    try{if(url.searchParams.has('render')){if(!source)throw new Error('视频保存引用已过期，编码文件仍在 exports');if(full.toLowerCase()!==source.toLowerCase())await copyFile(source,full,overwrite?0:constants.COPYFILE_EXCL);}else{const bytes=await body(req,256*1048576);if(!bytes.length)throw new Error('保存内容为空');await writeFile(full,bytes,{flag:overwrite?'w':'wx'});}}catch(e){if(e.code==='EEXIST')throw new Error('同名文件已存在，请更改文件名或勾选允许覆盖');throw e;}
    const id=randomUUID();savedOutputs.set(id,full);res.writeHead(200,{'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify({name:path.basename(full),path:full,url:'/saved-outputs/'+id}));return;
@@ -78,7 +117,7 @@ const server=http.createServer(async(req,res)=>{
    res.writeHead(200,{'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify({url:'/exports/'+encodeURIComponent(stem+'.mp4'),name:stem+'.mp4'}));return;
   }
   if(req.method==='POST'&&route==='/api/update/prepare'){localWrite(req);pendingUpdate=await prepareGitHubUpdate(root,appVersion);res.writeHead(200,{'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify(pendingUpdate));return;}
-  if(req.method==='POST'&&route==='/api/update/apply'){localWrite(req);if(!pendingUpdate||url.searchParams.get('token')!==pendingUpdate.token)throw new Error('请先下载并检查更新包');if(jobs.size)throw new Error('资源转换仍在进行，请稍后更新');const helper=spawn(process.execPath,[path.join(root,'tools/apply-update.mjs'),pendingUpdate.token,String(process.pid)],{cwd:root,windowsHide:true,detached:true,stdio:'ignore'});helper.unref();res.writeHead(200,{'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify({restarting:true,startedAt}));setTimeout(()=>{server.closeAllConnections();server.close(()=>process.exit(0));},500);return;}
+  if(req.method==='POST'&&route==='/api/update/apply'){localWrite(req);if(!pendingUpdate||url.searchParams.get('token')!==pendingUpdate.token)throw new Error('请先下载并检查更新包');if(jobs.size||blenderRender.busy()||blenderBake.busy())throw new Error('资源转换或 Blender 渲染仍在进行，请稍后更新');const helper=spawn(process.execPath,[path.join(root,'tools/apply-update.mjs'),pendingUpdate.token,String(process.pid)],{cwd:root,windowsHide:true,detached:true,stdio:'ignore'});helper.unref();res.writeHead(200,{'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify({restarting:true,startedAt}));setTimeout(()=>{server.closeAllConnections();server.close(()=>process.exit(0));},500);return;}
   if(req.method==='POST'&&route==='/api/export'){
    localWrite(req);
    const name=url.searchParams.get('name')||'export.json';if(name.length>160||/[\\/\x00-\x1f<>:"|?*]/.test(name)||!/^.+\.(json|zip|glb|vmd|png|webm)$/i.test(name))throw new Error('导出文件名不合法');

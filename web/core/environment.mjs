@@ -2,6 +2,8 @@ import * as T from 'three';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import {HDRLoader} from 'three/addons/loaders/HDRLoader.js';
 import {EXRLoader} from 'three/addons/loaders/EXRLoader.js';
+import {LightProbeGenerator} from 'three/addons/lights/LightProbeGenerator.js';
+import {characterLight} from './character-light.mjs';
 import {Reflector} from 'three/addons/objects/Reflector.js';
 
 export const LIGHTING_PRESETS={
@@ -16,7 +18,11 @@ export function lightingPreset(name){return {...(LIGHTING_PRESETS[name]||LIGHTIN
 // Its texture belongs to this controller, never to a character material.
 export function createEnvironment(renderer,scene,keyLight){
  const generator=new T.PMREMGenerator(renderer),room=new RoomEnvironment();
- const studio=generator.fromScene(room,.08);room.dispose();let imported=null,source=null;
+ const studio=generator.fromScene(room,.08);
+ const cube=new T.WebGLCubeRenderTarget(32,{type:T.HalfFloatType}),probeCamera=new T.CubeCamera(.1,100,cube);
+ probeCamera.update(renderer,room);let studioProbe=null,imported=null,source=null,importedProbe=null,disposed=false;
+ function updateProbe(){const probe=importedProbe||studioProbe;if(!probe||disposed)return;for(let i=0;i<9;i++)characterLight.sh.value[i].copy(probe.sh.coefficients[i]);}
+ LightProbeGenerator.fromCubeRenderTarget(renderer,cube).then(probe=>{studioProbe=probe;updateProbe();}).catch(error=>console.warn('Environment probe:',error.message)).finally(()=>{cube.dispose();room.dispose();});
  const fill=new T.DirectionalLight(0xcadbff,.4),rim=new T.DirectionalLight(0xddd5ff,.55);
  fill.position.set(3,2,-2);rim.position.set(1,3,3);scene.add(fill,rim);
  const floor=new Reflector(new T.PlaneGeometry(18,18),{textureWidth:512,textureHeight:512,color:0x464959,clipBias:.003});
@@ -28,9 +34,10 @@ export function createEnvironment(renderer,scene,keyLight){
  return {
   async load(file){const buffer=await file.arrayBuffer(),texture=/\.exr$/i.test(file.name)?new EXRLoader().parse(buffer):new HDRLoader().parse(buffer);
    const data=new T.DataTexture(texture.data,texture.width,texture.height,texture.format||T.RGBAFormat,texture.type);data.colorSpace=T.LinearSRGBColorSpace;data.minFilter=data.magFilter=T.LinearFilter;data.generateMipmaps=false;data.flipY=texture.flipY??true;data.mapping=T.EquirectangularReflectionMapping;data.needsUpdate=true;
-   const next=generator.fromEquirectangular(data);imported?.dispose();source?.dispose();imported=next;source=data;stamp='';},
-  clear(){imported?.dispose();source?.dispose();imported=source=null;stamp='';},
+   const next=generator.fromEquirectangular(data);imported?.dispose();source?.dispose();imported=next;source=data;const cube=new T.WebGLCubeRenderTarget(32,{type:T.HalfFloatType});cube.fromEquirectangularTexture(renderer,data);try{importedProbe=await LightProbeGenerator.fromCubeRenderTarget(renderer,cube);}finally{cube.dispose();}updateProbe();stamp='';},
+  clear(){imported?.dispose();source?.dispose();imported=source=importedProbe=null;updateProbe();stamp='';},
   update(options={},green=false){const p=lightingPreset(options.preset||'studio'),enabled=options.enabled===true;
+   characterLight.environment.value=enabled?(options.diffuseIntensity??.25):.12;characterLight.shadow.value=options.characterShadow??.28;characterLight.fill.value=enabled?(options.fillIntensity??.18):.08;
    keyLight.color.set(enabled?(options.key||p.key):'#ffffff');fill.visible=rim.visible=enabled;
    fill.color.set(options.fill||p.fill);fill.intensity=enabled?(options.fillIntensity??.38):0;
    rim.color.set(options.rim||p.rim);rim.intensity=enabled?(options.rimIntensity??.65):0;
@@ -40,6 +47,6 @@ export function createEnvironment(renderer,scene,keyLight){
    fullReflection=options.exporting===true||options.quality==='high';const size=fullReflection?1024:384;if(floor.getRenderTarget().width!==size)floor.getRenderTarget().setSize(size,size);
    const fogStamp=JSON.stringify([enabled&&!green&&options.fog,options.fogColor,options.fogDensity]);if(stamp!==fogStamp){scene.fog=enabled&&!green&&options.fog?new T.FogExp2(options.fogColor||'#343e57',Math.max(0,options.fogDensity??.025)):null;stamp=fogStamp;}
   },
-  dispose(){studio.dispose();imported?.dispose();source?.dispose();generator.dispose();floor.getRenderTarget().dispose();floor.geometry.dispose();floor.material.dispose();floor.removeFromParent();fill.removeFromParent();rim.removeFromParent();},
+  dispose(){disposed=true;studio.dispose();imported?.dispose();source?.dispose();generator.dispose();floor.getRenderTarget().dispose();floor.geometry.dispose();floor.material.dispose();floor.removeFromParent();fill.removeFromParent();rim.removeFromParent();},
  };
 }

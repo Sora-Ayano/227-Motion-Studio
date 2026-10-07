@@ -1,3 +1,4 @@
+import {applyClothBake} from './cloth-bake.mjs';
 import {resolveLimbContact} from './limb-contact.mjs';
 import { Quaternion, Vector3, Matrix4 } from 'three';
 import { sampleBone, sampleMorph, bracket, bezier } from './vmd.mjs';
@@ -59,7 +60,7 @@ export class Retargeter{
   if(game&&!clip.disabledBody)extractNativeRoot(model);
   else if(clip.capture?.rootSpace==='hips-local'||clip.choreography?.rootSpace==='hips-local'||/视频捕捉/.test(clip.name||''))extractCapturedRoot(model,this.rig.human.Hips);
   if(this.settings.limbContact&&!game)resolveLimbContact(model,this.mapping);
-  if(this.settings.cloth)resolveCloth(model,this.mapping,this.settings.clothMargin??.006,{time:frame/30,token:clip,native:!!game,inertia:game?0:this.settings.clothInertia??.65,wind:game?0:this.settings.clothWind??0,selfCollision:this.settings.selfCollision!==false,thickness:this.settings.clothThickness??.004,friction:this.settings.clothFriction??.35,quality:this.settings.clothQuality||'balanced',fabric:this.settings.clothFabric||'cotton'});
+  if(this.settings.cloth&&!applyClothBake(model,frame,clip))resolveCloth(model,this.mapping,this.settings.clothMargin??.006,{time:frame/30,token:clip,native:!!game,inertia:this.settings.clothInertia??.65,wind:this.settings.clothWind??0,dynamics:this.settings.clothDynamics!==false,strength:this.settings.clothStrength??.65,selfCollision:this.settings.selfCollision!==false,thickness:this.settings.clothThickness??.004,friction:this.settings.clothFriction??.35,quality:this.settings.clothQuality||'balanced',fabric:this.settings.clothFabric||'cotton'});
   model.updateAttachments();
   if(game&&!clip.disabledFace)applyGameBones(model,game,frame,'face',edits.bones);
   for(const b of model.bones.filter(b=>!model.bodyBones.includes(b))){const source=this.mapping[b.name];

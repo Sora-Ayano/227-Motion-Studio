@@ -30,13 +30,13 @@ export async function createCharacter(components,profile,variants={}){
     const shadowOverlay=m.skin?component.textureSets?.['subwear_'+(variants.subwear||'01')]?.['skinblend_sd.png']:null;
     const shadowMap=shadowOverlay?await blendTexture(shadowURL||skin,shadowOverlay):await texture(shadowURL),rampMap=await texture(m.rampTexture||data.skin?.textures['toonlamp.png'],true);
     if(shadowOverlay&&shadowMap)model.ownedTextures.push(shadowMap);
-    const mat=gameMaterial({name:m.name,map,shadowMap,rampMap,lining:m.lining,cloth:!m.skin&&(family==='body'||/ribbon|cloth|bow|tie/i.test(m.name)),color:map?0xffffff:new THREE.Color().fromArray(m.color)});
+    const mat=gameMaterial({name:m.name,map,shadowMap,rampMap,lining:m.lining,kind:m.skin?'skin':family==='hair'?'hair':family==='face'?'face':'cloth',cloth:!m.skin&&(family==='body'||/ribbon|cloth|bow|tie/i.test(m.name)),color:map?0xffffff:new THREE.Color().fromArray(m.color)});
     // Head meshes contain layered bangs, eyes and lashes. Expanding their
     // backs with a screen-space outline paints black triangles over the face.
     // Their original textures already supply the fine line work.
     if(m.skin||family==='face'||family==='hair'||family.toLowerCase().includes('accessory'))mat.userData.outlineParameters={visible:false};
     model.materials.push({key:family+'/'+m.name,family,material:mat});return mat;}));
-   const mesh=md.bones.length?new THREE.SkinnedMesh(geo,materials):new THREE.Mesh(geo,materials);mesh.name=family+'_'+md.name;mesh.frustumCulled=false;mesh.castShadow=true;mesh.receiveShadow=false;
+   const mesh=md.bones.length?new THREE.SkinnedMesh(geo,materials):new THREE.Mesh(geo,materials);mesh.name=family+'_'+md.name;mesh.frustumCulled=false;mesh.castShadow=true;mesh.receiveShadow=true;
    part.add(mesh);part.updateMatrixWorld(true);
    if(md.bones.length){const skeleton=new THREE.Skeleton(md.bones.map(i=>bones[i]),md.inverses.map(a=>new THREE.Matrix4().fromArray(a)));mesh.bind(skeleton,new THREE.Matrix4());mesh.normalizeSkinWeights();}
    mesh.updateMorphTargets();model.meshes.push(mesh);
